@@ -95,6 +95,7 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
             else:
                 Alpha = args.alpha
             Gamma_0 = Alpha
+            torch.save(model, f"../ckpt/{args.dataset}_{args.net}_{args.heads}.pth")
 
         if epoch >= 0:
             val_loss_history.append(val_loss)
