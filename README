@@ -1,0 +1,12 @@
+# GPRGNN
+
+# Commands:
+
+go to folder `src`
+```
+python train_model.py --RPMAX 2 \
+        --net GPRGNN \
+        --train_rate 0.025 \
+        --val_rate 0.025 \
+        --dataset cora 
+```

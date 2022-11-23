@@ -7,7 +7,7 @@
 
 """
 
-import argparse
+import argparse, os
 from dataset_utils import DataLoader
 from utils import random_planetoid_splits
 from GNN_models import *
@@ -95,7 +95,9 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
             else:
                 Alpha = args.alpha
             Gamma_0 = Alpha
-            torch.save(model, f"../ckpt/{args.dataset}_{args.net}_{args.heads}.pth")
+            output_file = f"{args.save_prefix}/{args.dataset}_{args.net}_{args.heads}.pth"
+            torch.save(model, output_file)
+            #print("saved to {}".format(output_file))
 
         if epoch >= 0:
             val_loss_history.append(val_loss)
@@ -137,8 +139,12 @@ if __name__ == '__main__':
     parser.add_argument('--RPMAX', type=int, default=10)
     parser.add_argument('--net', type=str, choices=['GCN', 'GAT', 'APPNP', 'ChebNet', 'JKNet', 'GPRGNN'],
                         default='GPRGNN')
+    parser.add_argument('--save_prefix', type=str, default='../ckpt')
 
     args = parser.parse_args()
+    if not os.path.exists(args.save_prefix):
+        os.makedirs(args.save_prefix)
+        print("{} created".format(args.save_prefix))
 
     gnn_name = args.net
     if gnn_name == 'GCN':
