@@ -46,7 +46,7 @@ def main():
     args = parser.parse_args()
 
     # "../ckpt/cora_GPRGNN_8.pth"
-    model = torch.load(args.ckpt).to(args.device)
+    model = torch.load(args.ckpt, map_location=args.device)
     model.eval()
 
     dataset, data = DataLoader(args.dataset)
