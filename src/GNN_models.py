@@ -8,7 +8,7 @@ import numpy as np
 
 from torch_geometric.nn.conv.gcn_conv import gcn_norm
 from torch.nn import Parameter
-from torch.nn import Linear
+from torch.nn import Linear, ReLU, Dropout
 from torch_geometric.nn import GATConv, GCNConv, ChebConv
 from torch_geometric.nn import JumpingKnowledge
 from torch_geometric.nn import MessagePassing, APPNP
@@ -27,7 +27,8 @@ class GPR_prop(MessagePassing):
 
         assert Init in ['SGC', 'PPR', 'NPPR', 'Random', 'WS']
         if Init == 'SGC':
-            # SGC-like, note that in this case, alpha has to be a integer. It means where the peak at when initializing GPR weights.
+            # SGC-like, note that in this case, alpha has to be a integer. It means where the peak at when
+            # initializing GPR weights.
             TEMP = 0.0*np.ones(K+1)
             TEMP[alpha] = 1.0
         elif Init == 'PPR':
@@ -77,17 +78,27 @@ class GPR_prop(MessagePassing):
 class GPRGNN(torch.nn.Module):
     def __init__(self, dataset, args):
         super(GPRGNN, self).__init__()
-        self.lin1 = Linear(dataset.num_features, args.hidden)
-        self.lin2 = Linear(args.hidden, dataset.num_classes)
+        self.Init = args.Init
+        self.dprate = args.dprate
+        self.dropout = args.dropout
+
+        self.lin1 = torch.nn.Sequential(
+            Dropout(p=self.dropout),
+            Linear(dataset.num_features, args.hidden),
+            ReLU(),
+        )
+        self.lin2 = torch.nn.Sequential(
+            Dropout(p=self.dropout),
+            Linear(args.hidden, dataset.num_classes),
+        )
+
+        self.quant = torch.ao.quantization.QuantStub()
+        self.dequant = torch.ao.quantization.DeQuantStub()
 
         if args.ppnp == 'PPNP':
             self.prop1 = APPNP(args.K, args.alpha)
         elif args.ppnp == 'GPR_prop':
             self.prop1 = GPR_prop(args.K, args.alpha, args.Init, args.Gamma)
-
-        self.Init = args.Init
-        self.dprate = args.dprate
-        self.dropout = args.dropout
 
     def reset_parameters(self):
         self.prop1.reset_parameters()
@@ -95,10 +106,10 @@ class GPRGNN(torch.nn.Module):
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
 
-        x = F.dropout(x, p=self.dropout, training=self.training)
-        x = F.relu(self.lin1(x))
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.quant(x)
+        x = self.lin1(x)
         x = self.lin2(x)
+        x = self.dequant(x)
 
         if self.dprate == 0.0:
             x = self.prop1(x, edge_index)
