@@ -2,18 +2,21 @@ import os
 import sys
 import time
 import numpy as np
-
 import torch
-from dataset_utils import DataLoader
 import torch.nn as nn
+from argparse import ArgumentParser
+from dataset_utils import DataLoader
 import torch.nn.functional as F
-from torch.utils.data import DataLoader
 
 
-def test(model, data):
+def test(model, data, is_training=True, device="cuda:0"):
     model.eval()
-    logits, accs, losses, preds = model(data), [], [], []
-    for _, mask in data('train_mask', 'val_mask', 'test_mask'):
+    logits, accs, losses, preds = model(data.to(device)), [], [], []
+    if is_training:
+        partitions = ['train_mask']
+    else:
+        partitions = ['train_mask', 'val_mask', 'test_mask']
+    for _, mask in data(*partitions):
         pred = logits[mask].max(1)[1]
         acc = pred.eq(data.y[mask]).sum().item() / mask.sum().item()
 
@@ -23,34 +26,53 @@ def test(model, data):
         accs.append(acc)
         losses.append(loss.detach().cpu())
 
+    if not is_training:
+        train_acc, val_acc, test_acc = accs
+        print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {train_acc:.4f} \t Test Accuracy {test_acc:.4f}")
 
-num_calibration_batches = 32
 
-myModel = torch.load("../ckpt/cora_GPRGNN_8.pth").to('cpu')
-myModel.eval()
+def main():
+    parser = ArgumentParser()
+    parser.add_argument("--ckpt", type=str, required=True)
+    parser.add_argument("--q-config", type=str, choices=["default", "fbgemm"])
+    parser.add_argument("--dataset", type=str)
+    parser.add_argument("--device", type=str, default="cuda:0")
+    args = parser.parse_args()
 
-dataset, data = DataLoader("cora")
+    # "../ckpt/cora_GPRGNN_8.pth"
+    model = torch.load(args.ckpt)
+    model.eval()
 
-# Fuse Conv, bn and relu
-myModel.fuse_model()
+    dataset, data = DataLoader("cora")
 
-# Specify quantization configuration
-# Start with simple min/max range estimation and per-tensor quantization of weights
-myModel.qconfig = torch.ao.quantization.default_qconfig
-print(myModel.qconfig)
-torch.ao.quantization.prepare(myModel, inplace=True)
+    # Nothing to fuse for GPRGNN
+    # model.fuse_model()
 
-# Calibrate first
-print('Post Training Quantization Prepare: Inserting Observers')
-print('\n Inverted Residual Block:After observer insertion \n\n', myModel.features[1].conv)
+    # Specify quantization configuration
+    # Start with simple min/max range estimation and per-tensor quantization of weights
+    model.qconfig = torch.ao.quantization.default_qconfig
+    print(model.qconfig)
+    torch.ao.quantization.prepare(model, inplace=True)
 
-# Calibrate with the training set
-# evaluate(myModel, criterion, data_loader, neval_batches=num_calibration_batches)
-test(model, data)
-print('Post Training Quantization: Calibration done')
+    # Calibrate first
+    print('Post Training Quantization Prepare: Inserting Observers')
+    print("Model After Observer Insertion")
+    print(model)
 
-# Convert to quantized model
-torch.ao.quantization.convert(myModel, inplace=True)
-print('Post Training Quantization: Convert done')
-print('\n Inverted Residual Block: After fusion and quantization, note fused modules: \n\n',myModel.features[1].conv)
+    # Calibrate with the training set
+    test(model, data, is_training=True, device=args.device)
+    print('Post Training Quantization: Calibration done')
 
+    # Convert to quantized model
+    torch.ao.quantization.convert(model, inplace=True)
+    if not hasattr(model, "dequant"):
+        torch.ao.quantization.add_quant_dequant(model)
+    print('Post Training Quantization: Convert done')
+    print("Model After Quantization")
+    print(model)
+
+    test(model, data, is_training=False)
+
+
+if __name__ == "__main__":
+    main()
