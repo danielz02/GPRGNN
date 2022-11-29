@@ -8,7 +8,7 @@
 import argparse
 from dataset_utils import DataLoader
 from utils import random_planetoid_splits
-from GNN_models import *
+from GNN_models_original import *
 
 import torch
 import torch.nn.functional as F
@@ -121,36 +121,62 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
                 if val_loss > tmp.mean().item():
                     break
     
+    
     #Applying uniform quantization here and compare its performance
 
     [train_acc, val_acc, tmp_test_acc], preds, [
         train_loss, val_loss, tmp_test_loss] = test(model, data)
-
-
     print('Before quantization')
     print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")   
-    
+    plt.plot(model.prop1.temp.data-model.prop1.temp.data[0])
+    Led=['Original Gamma']
     for Nbit in range(9):
         
+        #Copy model to retain the trained model
         model_quantized=copy.deepcopy(model)
+
         model_quantized.lin1.weight.requires_grad=False
         model_quantized.lin1.bias.requires_grad=False
         model_quantized.lin2.weight.requires_grad=False
         model_quantized.lin2.bias.requires_grad=False
         
+        #Quantize weights here
         model_quantized.lin1.weight.data=Unif_Quantization(model_quantized.lin1.weight.data,Nbit)
         model_quantized.lin1.bias.data=Unif_Quantization(model_quantized.lin1.bias.data,Nbit)
         model_quantized.lin2.weight=Unif_Quantization(model_quantized.lin2.weight,Nbit)
         model_quantized.lin2.bias.data=Unif_Quantization(model_quantized.lin2.bias.data,Nbit)
     
 
-    
+        #Check performance after quantization
         [train_acc, val_acc, tmp_test_acc], preds, [
             train_loss, val_loss, tmp_test_loss] = test(model_quantized, data)
         print('After quantization with {} bit'.format(Nbit))
         print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")
 
+        
+        #optimizer for the retraining. As it is only updating prop1 function, just put that
+        optimizer_quant = torch.optim.Adam([{
+            'params': model_quantized.prop1.parameters(),
+            'weight_decay': 0.0, 'lr': args.lr
+        }
+        ],
+            lr=args.lr)
+        
+        #retrain model
+        for epoch_after_quantize in range(100):
+            train(model_quantized, optimizer_quant, data, args.dprate)
+        
+        #Check performance again
+        [train_acc, val_acc, tmp_test_acc], preds, [
+            train_loss, val_loss, tmp_test_loss] = test(model_quantized, data)
+        print('After quantization with {} bit and retrain gamma'.format(Nbit))
+        print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")
 
+        
+        plt.plot(model_quantized.prop1.temp.data-model_quantized.prop1.temp.data[0],'o')
+        Led.append('Gamma after {} bit quantization'.format(Nbit))
+    plt.legend(Led,loc='center left', bbox_to_anchor=(1, 0.5))
+    plt.show()
     return test_acc, best_val_acc, Gamma_0
 
 
