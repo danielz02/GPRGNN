@@ -128,7 +128,7 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
         train_loss, val_loss, tmp_test_loss] = test(model, data)
     print('Before quantization')
     print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")   
-    plt.plot(model.prop1.temp.data-model.prop1.temp.data[0])
+    plt.plot(model.prop1.temp.data)
     Led=['Original Gamma']
     for Nbit in range(9):
         
@@ -173,7 +173,7 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
         print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")
 
         
-        plt.plot(model_quantized.prop1.temp.data-model_quantized.prop1.temp.data[0],'o')
+        plt.plot(model_quantized.prop1.temp.data,'o')
         Led.append('Gamma after {} bit quantization'.format(Nbit))
     plt.legend(Led,loc='center left', bbox_to_anchor=(1, 0.5))
     plt.show()
