@@ -33,7 +33,9 @@ def Unif_Quantization(weights,Nbit):
     
     Quantized_weight=(Quantized_weight+0.5)*StepSize+Min
     Quantized_weight=Quantized_weight.reshape(Shape)
-    return torch.nn.Parameter(torch.from_numpy(Quantized_weight))
+    MSE = np.square(np.subtract(weights,Quantized_weight)).mean().tolist()
+    #print("MSE {}".format(MSE))
+    return torch.nn.Parameter(torch.from_numpy(Quantized_weight)), MSE
 
 def RunExp(args, dataset, data, Net, percls_trn, val_lb):
 
@@ -130,8 +132,11 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
     print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")   
     plt.plot(model.prop1.temp.data)
     Led=['Original Gamma']
+    data_save = np.load("quan.npz", allow_pickle=True)
+    results = data_save['data'].reshape(-1)[0]
+    result_bits = []
     for Nbit in range(9):
-        
+        result = []
         #Copy model to retain the trained model
         model_quantized=copy.deepcopy(model)
 
@@ -141,10 +146,10 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
         model_quantized.lin2.bias.requires_grad=False
         
         #Quantize weights here
-        model_quantized.lin1.weight.data=Unif_Quantization(model_quantized.lin1.weight.data,Nbit)
-        model_quantized.lin1.bias.data=Unif_Quantization(model_quantized.lin1.bias.data,Nbit)
-        model_quantized.lin2.weight=Unif_Quantization(model_quantized.lin2.weight,Nbit)
-        model_quantized.lin2.bias.data=Unif_Quantization(model_quantized.lin2.bias.data,Nbit)
+        model_quantized.lin1.weight.data, MSE_w1=Unif_Quantization(model_quantized.lin1.weight.data,Nbit)
+        model_quantized.lin1.bias.data, MSE_b1=Unif_Quantization(model_quantized.lin1.bias.data,Nbit)
+        model_quantized.lin2.weight, MSE_w2=Unif_Quantization(model_quantized.lin2.weight,Nbit)
+        model_quantized.lin2.bias.data, MSE_b2=Unif_Quantization(model_quantized.lin2.bias.data,Nbit)
     
 
         #Check performance after quantization
@@ -152,7 +157,7 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
             train_loss, val_loss, tmp_test_loss] = test(model_quantized, data)
         print('After quantization with {} bit'.format(Nbit))
         print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")
-
+        result.append(tmp_test_acc)
         
         #optimizer for the retraining. As it is only updating prop1 function, just put that
         optimizer_quant = torch.optim.Adam([{
@@ -171,12 +176,15 @@ def RunExp(args, dataset, data, Net, percls_trn, val_lb):
             train_loss, val_loss, tmp_test_loss] = test(model_quantized, data)
         print('After quantization with {} bit and retrain gamma'.format(Nbit))
         print(f"Training Accuracy {train_acc:.4f} \t Validation Accuracy {val_acc:.4f} \t Test Accuracy {tmp_test_acc:.4f}")
-
-        
+        result.append(tmp_test_acc)
+        result += [MSE_w1, MSE_b1, MSE_w2, MSE_b2]
+        result_bits.append(result)
         plt.plot(model_quantized.prop1.temp.data,'o')
         Led.append('Gamma after {} bit quantization'.format(Nbit))
     plt.legend(Led,loc='center left', bbox_to_anchor=(1, 0.5))
     plt.show()
+    results[args.dataset] = np.array(result_bits).T.tolist()
+    np.savez("quan", data=results)
     return test_acc, best_val_acc, Gamma_0
 
 
